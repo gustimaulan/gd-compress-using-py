@@ -40,18 +40,22 @@ app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
 # Trust reverse proxy headers (Traefik) so url_for() generates https:// URLs
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
-# ─── Paths ─────────────────────────────────────────────────────────────────────
+# ─── Paths ───────────────────────────────────────────────────────────────────────────
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
-CREDENTIALS_FILE = DATA_DIR / "credentials.json"
-TOKEN_FILE = DATA_DIR / "token.json"
+TOKENS_DIR = DATA_DIR / "tokens"
+TOKENS_DIR.mkdir(exist_ok=True)
 CONFIG_FILE = DATA_DIR / "config.json"
 
-SCOPES = ["https://www.googleapis.com/auth/drive"]
+# Request both sign-in scopes and Drive access in one flow
+SCOPES = [
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+    "https://www.googleapis.com/auth/drive",
+]
 
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "")  # empty = no auth
-
-# Google OAuth credentials — can be provided either via env vars OR credentials.json
+# Google OAuth credentials (required)
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
@@ -86,14 +90,25 @@ def load_config() -> dict:
 def save_config(data: dict):
     CONFIG_FILE.write_text(json.dumps(data, indent=2))
 
+def _user_token_path(email: str) -> Path:
+    """Get the token file path for a specific user."""
+    import hashlib
+    safe = hashlib.sha256(email.encode()).hexdigest()[:16]
+    return TOKENS_DIR / f"{safe}.json"
 
-def get_drive_service():
-    if not TOKEN_FILE.exists():
+
+def get_drive_service(user_email: str = None):
+    """Build a Drive service from the current user's stored token."""
+    email = user_email or (session.get("user_email") if session else None)
+    if not email:
         return None
-    creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+    token_file = _user_token_path(email)
+    if not token_file.exists():
+        return None
+    creds = Credentials.from_authorized_user_file(str(token_file), SCOPES)
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
-        TOKEN_FILE.write_text(creds.to_json())
+        token_file.write_text(creds.to_json())
     if creds and creds.valid:
         return build("drive", "v3", credentials=creds)
     return None
@@ -109,56 +124,89 @@ def auth_required(f):
     return decorated
 
 
-# ─── Auth (Google ID Token) ────────────────────────────────────────────────────
+# ─── Auth (Google Sign-In + Drive OAuth in one flow) ───────────────────────
 
-ALLOWED_EMAILS = [
-    e.strip() for e in os.environ.get("ALLOWED_EMAILS", "").split(",") if e.strip()
-]
+def _build_flow(state=None) -> Flow:
+    """Build an OAuth Flow with combined sign-in + Drive scopes."""
+    redirect_uri = url_for("oauth_callback", _external=True)
+    if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET):
+        raise RuntimeError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set.")
+    client_config = {
+        "web": {
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [redirect_uri],
+        }
+    }
+    return Flow.from_client_config(
+        client_config, scopes=SCOPES, state=state,
+        redirect_uri=redirect_uri,
+    )
 
 
-@app.route("/api/auth/google", methods=["POST"])
-def google_login():
-    """Verify a Google ID token and create a session."""
-    from google.oauth2 import id_token as id_token_module
-    from google.auth.transport import requests as google_requests
-
-    token = (request.json or {}).get("credential", "")
-    if not token:
-        return jsonify({"error": "No credential provided"}), 400
-
+@app.route("/api/auth/login")
+def auth_login():
+    """Start the combined Google Sign-In + Drive authorization flow."""
     try:
+        flow = _build_flow()
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 400
+    auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
+    session["oauth_state"] = state
+    session["oauth_code_verifier"] = getattr(flow, "code_verifier", None)
+    return jsonify({"url": auth_url})
+
+
+@app.route("/api/oauth/callback")
+def oauth_callback():
+    """Handle the OAuth callback: store token per-user and create session."""
+    try:
+        flow = _build_flow(state=session.get("oauth_state"))
+        code_verifier = session.pop("oauth_code_verifier", None)
+        flow.fetch_token(
+            authorization_response=request.url,
+            code_verifier=code_verifier,
+        )
+        creds = flow.credentials
+
+        # Get user info from the ID token
+        from google.oauth2 import id_token as id_token_module
+        from google.auth.transport import requests as google_requests
         idinfo = id_token_module.verify_oauth2_token(
-            token,
+            creds.id_token,
             google_requests.Request(),
-            GOOGLE_CLIENT_ID or None,
+            GOOGLE_CLIENT_ID,
         )
         email = idinfo.get("email", "")
         name = idinfo.get("name", "")
+        picture = idinfo.get("picture", "")
 
-        # If ALLOWED_EMAILS is set, restrict access
-        if ALLOWED_EMAILS and email not in ALLOWED_EMAILS:
-            return jsonify({"error": f"Access denied for {email}"}), 403
+        # Store token for this user
+        token_file = _user_token_path(email)
+        token_file.write_text(creds.to_json())
 
+        # Create session
         session["user_email"] = email
         session["user_name"] = name
-        session["user_picture"] = idinfo.get("picture", "")
-        return jsonify({
-            "ok": True,
-            "email": email,
-            "name": name,
-            "picture": idinfo.get("picture", ""),
-        })
+        session["user_picture"] = picture
+
     except Exception as e:
-        return jsonify({"error": f"Invalid token: {e}"}), 401
+        return f"OAuth failed: {e}", 400
+    return redirect("/?auth=success")
 
 
 @app.route("/api/auth/me")
 def auth_me():
-    """Check if the user is logged in."""
-    if session.get("user_email"):
+    """Check current session."""
+    email = session.get("user_email")
+    if email:
+        has_drive = _user_token_path(email).exists()
         return jsonify({
             "authenticated": True,
-            "email": session["user_email"],
+            "drive_connected": has_drive,
+            "email": email,
             "name": session.get("user_name", ""),
             "picture": session.get("user_picture", ""),
         })
@@ -182,7 +230,7 @@ def index():
     if index_file.exists():
         return index_file.read_text(), 200, {"Content-Type": "text/html"}
     # Fallback to legacy template
-    return render_template("index.html", password_required=bool(APP_PASSWORD))
+    return render_template("index.html", password_required=False)
 
 
 @app.route("/assets/<path:filename>")
@@ -205,15 +253,16 @@ def vue_catch_all():
 
 @app.route("/api/status")
 def api_status():
-    authed = TOKEN_FILE.exists()
-    creds_uploaded = CREDENTIALS_FILE.exists()
+    authed = session.get("user_email") is not None
+    drive_connected = False
+    if authed:
+        drive_connected = _user_token_path(session["user_email"]).exists()
     env_creds = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
     config = load_config()
     return jsonify({
         "authenticated": authed,
-        "creds_uploaded": creds_uploaded,
-        "env_creds": env_creds,
-        "oauth_ready": creds_uploaded or env_creds,
+        "drive_connected": drive_connected,
+        "oauth_ready": env_creds, # Only env vars are supported now
         "google_client_id": GOOGLE_CLIENT_ID,
         "config": config,
     })
@@ -224,90 +273,15 @@ def api_status():
 @app.route("/api/upload/credentials", methods=["POST"])
 @auth_required
 def upload_credentials():
-    f = request.files.get("file")
-    if not f:
-        return jsonify({"error": "No file"}), 400
-    try:
-        content = json.loads(f.read())
-        # Accept credentials.json or token.json
-        CREDENTIALS_FILE.write_text(json.dumps(content))
-        return jsonify({"ok": True})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
+    # This endpoint is deprecated as credentials are now expected via env vars
+    return jsonify({"error": "This endpoint is deprecated. Please use GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables."}), 400
 
 
 @app.route("/api/upload/token", methods=["POST"])
 @auth_required
 def upload_token():
-    f = request.files.get("file")
-    if not f:
-        return jsonify({"error": "No file"}), 400
-    try:
-        content = json.loads(f.read())
-        TOKEN_FILE.write_text(json.dumps(content))
-        return jsonify({"ok": True})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
-
-
-# ─── API: OAuth flow ───────────────────────────────────────────────────────────
-
-def _build_flow(state=None) -> Flow:
-    """
-    Build an OAuth Flow from either:
-    1. GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET env vars (preferred)
-    2. credentials.json file (fallback)
-    """
-    redirect_uri = url_for("oauth_callback", _external=True)
-    if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
-        client_config = {
-            "web": {
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [redirect_uri],
-            }
-        }
-        return Flow.from_client_config(
-            client_config, scopes=SCOPES, state=state,
-            redirect_uri=redirect_uri,
-        )
-    elif CREDENTIALS_FILE.exists():
-        return Flow.from_client_secrets_file(
-            str(CREDENTIALS_FILE), scopes=SCOPES, state=state,
-            redirect_uri=redirect_uri,
-        )
-    raise RuntimeError("No OAuth credentials configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET env vars, or upload credentials.json.")
-
-
-@app.route("/api/oauth/start")
-@auth_required
-def oauth_start():
-    try:
-        flow = _build_flow()
-    except RuntimeError as e:
-        return jsonify({"error": str(e)}), 400
-    auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
-    session["oauth_state"] = state
-    # Persist the PKCE code_verifier so the callback can use it
-    session["oauth_code_verifier"] = getattr(flow, "code_verifier", None)
-    return jsonify({"url": auth_url})
-
-
-@app.route("/api/oauth/callback")
-def oauth_callback():
-    try:
-        flow = _build_flow(state=session.get("oauth_state"))
-        code_verifier = session.pop("oauth_code_verifier", None)
-        flow.fetch_token(
-            authorization_response=request.url,
-            code_verifier=code_verifier,
-        )
-        TOKEN_FILE.write_text(flow.credentials.to_json())
-    except Exception as e:
-        return f"OAuth failed: {e}", 400
-    return redirect("/?auth=success")
+    # This endpoint is deprecated as tokens are managed per-user via OAuth flow
+    return jsonify({"error": "This endpoint is deprecated. User tokens are managed via the OAuth flow."}), 400
 
 
 # ─── API: Config ───────────────────────────────────────────────────────────────

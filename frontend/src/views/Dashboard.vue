@@ -1,58 +1,10 @@
 <template>
   <div>
-    <!-- Auth Section -->
+    <!-- Drive Status -->
     <div class="card">
-      <div class="card-title"><span class="icon">🔐</span> Google Drive Access</div>
-      <div class="auth-section">
-        <div class="auth-row">
-          <span v-if="authenticated" class="badge badge-green">✓ Drive connected</span>
-          <span v-else class="badge badge-red">Not connected</span>
-
-          <button
-            v-if="!authenticated"
-            class="btn btn-primary btn-sm"
-            @click="doOAuth"
-            :disabled="!oauthReady"
-          >
-            🔑 Sign in with Google
-          </button>
-        </div>
-
-        <!-- File uploads (fallback) -->
-        <details v-if="!authenticated" class="upload-details">
-          <summary class="text-muted">Or upload credentials manually</summary>
-          <div class="auth-row" style="margin-top: 0.5rem">
-            <div
-              class="upload-zone"
-              :class="{ done: localCredsUploaded }"
-              @click="$refs.credsInput.click()"
-            >
-              {{ localCredsUploaded ? 'credentials.json ✓' : '📎 Upload credentials.json' }}
-              <input
-                ref="credsInput"
-                type="file"
-                accept=".json"
-                hidden
-                @change="upload('/api/upload/credentials', $event, 'creds')"
-              />
-            </div>
-            <div
-              class="upload-zone"
-              :class="{ done: authenticated }"
-              @click="$refs.tokenInput.click()"
-            >
-              {{ authenticated ? 'token.json ✓' : '📎 Upload token.json' }}
-              <input
-                ref="tokenInput"
-                type="file"
-                accept=".json"
-                hidden
-                @change="upload('/api/upload/token', $event, 'token')"
-              />
-            </div>
-          </div>
-        </details>
-      </div>
+      <div class="card-title"><span class="icon">🔗</span> Google Drive</div>
+      <span v-if="authenticated" class="badge badge-green">✓ Drive connected</span>
+      <span v-else class="badge badge-red">Drive not connected — try logging out and back in</span>
     </div>
 
     <!-- Config Section -->
@@ -120,7 +72,7 @@
     <!-- Job History -->
     <div v-if="jobHistory.length" class="card">
       <div class="card-title"><span class="icon">📜</span> Job History</div>
-      <div v-for="job in jobHistory" :key="job.id" class="dup-file" style="border-top: none; border-bottom: 1px solid var(--border);">
+      <div v-for="job in jobHistory" :key="job.id" class="dup-file" style="border-top:none;border-bottom:1px solid var(--border);">
         <span class="badge" :class="job.status === 'done' ? 'badge-green' : job.status === 'running' ? 'badge-yellow' : 'badge-red'">
           {{ job.status }}
         </span>
@@ -133,26 +85,15 @@
 
 <script setup>
 import { ref, onMounted, nextTick, watch } from 'vue';
-import {
-  uploadFile,
-  saveConfig,
-  getFolders,
-  startJob,
-  getJobs,
-  startOAuth,
-  streamJob,
-} from '../api/client';
+import { saveConfig, getFolders, startJob, getJobs, streamJob } from '../api/client';
 
 const props = defineProps({
   authenticated: Boolean,
-  oauthReady: Boolean,
-  credsUploaded: Boolean,
   config: Object,
 });
 
 const emit = defineEmits(['refresh-status']);
 
-const localCredsUploaded = ref(false);
 const folders = ref([]);
 const foldersLoading = ref(false);
 const jobRunning = ref(false);
@@ -170,7 +111,6 @@ const form = ref({
   delete_original: false,
 });
 
-// Sync config prop to form
 watch(() => props.config, (cfg) => {
   if (cfg) {
     form.value.folder_id = cfg.folder_id || '';
@@ -183,16 +123,11 @@ watch(() => props.config, (cfg) => {
   }
 }, { immediate: true });
 
-watch(() => props.credsUploaded, (v) => { localCredsUploaded.value = v; }, { immediate: true });
-
-// Load folders when authenticated
 watch(() => props.authenticated, (v) => {
   if (v) loadFolders();
 }, { immediate: true });
 
-onMounted(async () => {
-  await loadJobHistory();
-});
+onMounted(loadJobHistory);
 
 async function loadFolders() {
   foldersLoading.value = true;
@@ -206,40 +141,11 @@ async function loadFolders() {
 }
 
 async function loadJobHistory() {
-  try {
-    jobHistory.value = await getJobs();
-  } catch (e) {
-    /* ignore */
-  }
-}
-
-async function doOAuth() {
-  try {
-    const data = await startOAuth();
-    if (data.url) window.open(data.url, '_blank');
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
-async function upload(endpoint, event, type) {
-  const file = event.target.files[0];
-  if (!file) return;
-  try {
-    await uploadFile(endpoint, file);
-    if (type === 'creds') localCredsUploaded.value = true;
-    emit('refresh-status');
-  } catch (e) {
-    alert(e.message);
-  }
+  try { jobHistory.value = await getJobs(); } catch (e) { /* ok */ }
 }
 
 async function doSaveConfig() {
-  try {
-    await saveConfig(form.value);
-  } catch (e) {
-    alert(e.message);
-  }
+  try { await saveConfig(form.value); } catch (e) { alert(e.message); }
 }
 
 async function doStartJob() {
@@ -248,35 +154,14 @@ async function doStartJob() {
     const data = await startJob();
     jobRunning.value = true;
     logs.value = [];
-
     streamJob(
       data.job_id,
       (msg) => {
         logs.value.push(msg);
-        nextTick(() => {
-          if (logPanel.value) logPanel.value.scrollTop = logPanel.value.scrollHeight;
-        });
+        nextTick(() => { if (logPanel.value) logPanel.value.scrollTop = logPanel.value.scrollHeight; });
       },
-      () => {
-        jobRunning.value = false;
-        loadJobHistory();
-      }
+      () => { jobRunning.value = false; loadJobHistory(); },
     );
-  } catch (e) {
-    alert(e.message);
-  }
+  } catch (e) { alert(e.message); }
 }
 </script>
-
-<style scoped>
-.upload-details {
-  font-size: 0.82rem;
-}
-.upload-details summary {
-  cursor: pointer;
-  color: var(--text-muted);
-}
-.text-muted {
-  color: var(--text-muted);
-}
-</style>

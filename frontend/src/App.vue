@@ -16,9 +16,7 @@
 
   <main :class="{ 'main-content': showNav }">
     <router-view
-      :authenticated="driveAuthenticated"
-      :oauth-ready="oauthReady"
-      :creds-uploaded="credsUploaded"
+      :authenticated="driveConnected"
       :config="config"
       @refresh-status="loadStatus"
     />
@@ -33,9 +31,7 @@ import { getStatus } from './api/client';
 const route = useRoute();
 const router = useRouter();
 
-const driveAuthenticated = ref(false);
-const oauthReady = ref(false);
-const credsUploaded = ref(false);
+const driveConnected = ref(false);
 const config = ref({});
 const user = ref(null);
 
@@ -43,22 +39,14 @@ const showNav = computed(() => route.name !== 'Login');
 
 async function loadStatus() {
   try {
-    // Check app session
     const meRes = await fetch('/api/auth/me');
     const meData = await meRes.json();
     if (meData.authenticated) {
-      user.value = {
-        email: meData.email,
-        name: meData.name,
-        picture: meData.picture,
-      };
+      user.value = { email: meData.email, name: meData.name, picture: meData.picture };
+      driveConnected.value = meData.drive_connected;
     }
 
-    // Check Drive status
     const data = await getStatus();
-    driveAuthenticated.value = data.authenticated;
-    oauthReady.value = data.oauth_ready;
-    credsUploaded.value = data.creds_uploaded;
     config.value = data.config;
   } catch (e) {
     console.error('Status load failed', e);
@@ -71,29 +59,14 @@ async function doLogout() {
   router.push('/login');
 }
 
-// Reload status when navigating to dashboard
 watch(() => route.path, () => {
   if (route.name !== 'Login') loadStatus();
 }, { immediate: true });
 </script>
 
 <style scoped>
-.nav-user {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-left: 0.5rem;
-}
-.avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-}
-.user-name {
-  font-size: 0.82rem;
-  color: var(--text-muted);
-}
-@media (max-width: 640px) {
-  .user-name { display: none; }
-}
+.nav-user { display: flex; align-items: center; gap: 0.5rem; margin-left: 0.5rem; }
+.avatar { width: 28px; height: 28px; border-radius: 999px; }
+.user-name { font-size: 0.82rem; color: var(--text-muted); }
+@media (max-width: 640px) { .user-name { display: none; } }
 </style>
