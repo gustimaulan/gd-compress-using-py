@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GD Compressor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <!-- Login Overlay -->
+    <div id="login-overlay" class="overlay hidden">
+      <div class="login-card">
+        <div class="logo">🗜️</div>
+        <h1>GD Compressor</h1>
+        <p class="subtitle">Enter your password to continue</p>
+        <input
+          type="password"
+          id="login-password"
+          placeholder="Password"
+          autocomplete="current-password"
+        />
+        <button id="login-btn" class="btn btn-primary w-full">Sign In</button>
+        <p id="login-error" class="error-text hidden">Wrong password</p>
+      </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" class="hidden">
+      <header>
+        <div class="header-inner">
+          <span class="logo-inline">🗜️ GD Compressor</span>
+          <div class="header-right">
+            <span id="auth-badge" class="badge badge-red">Not connected</span>
+            <button
+              id="logout-btn"
+              class="btn btn-ghost btn-sm js-password-only hidden"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <!-- Setup Panel -->
+        <section id="setup-section" class="card">
+          <h2>Setup</h2>
+          <div class="setup-grid">
+            <!-- credentials.json -->
+            <div class="upload-zone" id="creds-zone">
+              <span id="creds-icon">📄</span>
+              <p id="creds-label">Upload <strong>credentials.json</strong></p>
+              <input
+                type="file"
+                id="creds-input"
+                accept=".json"
+                class="file-input"
+              />
+              <label for="creds-input" class="btn btn-ghost btn-sm"
+                >Choose file</label
+              >
+            </div>
+            <!-- token.json -->
+            <div class="upload-zone" id="token-zone">
+              <span id="token-icon">🔑</span>
+              <p id="token-label">
+                Upload <strong>token.json</strong> <em>(or use OAuth below)</em>
+              </p>
+              <input
+                type="file"
+                id="token-input"
+                accept=".json"
+                class="file-input"
+              />
+              <label for="token-input" class="btn btn-ghost btn-sm"
+                >Choose file</label
+              >
+            </div>
+            <!-- OAuth -->
+            <div class="upload-zone">
+              <span>🔗</span>
+              <p>Authorize via Google OAuth</p>
+              <button id="oauth-btn" class="btn btn-ghost btn-sm">
+                Connect Google Account
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Config Panel -->
+        <section class="card">
+          <div class="card-header">
+            <h2>Configuration</h2>
+            <button id="save-config-btn" class="btn btn-primary btn-sm">
+              Save
+            </button>
+          </div>
+
+          <div class="config-grid">
+            <div class="field">
+              <label for="folder-id"
+                >Source Folder ID <span class="required">*</span></label
+              >
+              <input
+                type="text"
+                id="folder-id"
+                placeholder="e.g. 1aBcDeFgHiJkL..."
+              />
+              <small
+                >From the Drive URL: /drive/folders/<strong
+                  >THIS_PART</strong
+                ></small
+              >
+            </div>
+            <div class="field">
+              <label for="output-folder-id">Output Folder ID</label>
+              <input
+                type="text"
+                id="output-folder-id"
+                placeholder="Leave blank = same as source"
+              />
+            </div>
+            <div class="field">
+              <label for="quality"
+                >WebP Quality: <span id="quality-val">80</span></label
+              >
+              <input type="range" id="quality" min="20" max="100" value="80" />
+            </div>
+            <div class="field">
+              <label for="min-size-kb">Skip images smaller than (KB)</label>
+              <input
+                type="number"
+                id="min-size-kb"
+                placeholder="0 = process all"
+                min="0"
+              />
+            </div>
+            <div class="field">
+              <label for="max-width">Max Width (px)</label>
+              <input
+                type="number"
+                id="max-width"
+                placeholder="Leave blank = no resize"
+                min="0"
+              />
+            </div>
+            <div class="field">
+              <label for="max-height">Max Height (px)</label>
+              <input
+                type="number"
+                id="max-height"
+                placeholder="Leave blank = no resize"
+                min="0"
+              />
+            </div>
+            <div class="field field-checkbox">
+              <label class="checkbox-label">
+                <input type="checkbox" id="delete-original" />
+                <span>Delete originals after upload</span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <!-- Run Panel -->
+        <section class="card">
+          <div class="card-header">
+            <h2>Run</h2>
+            <button id="run-btn" class="btn btn-accent">
+              ▶ Start Compression
+            </button>
+          </div>
+          <div id="log-container" class="log-container">
+            <p class="log-placeholder">
+              Logs will appear here when a job runs.
+            </p>
+          </div>
+          <div id="job-stats" class="job-stats hidden">
+            <div class="stat">
+              <span id="stat-total">0</span><small>Total</small>
+            </div>
+            <div class="stat">
+              <span id="stat-success">0</span><small>Done</small>
+            </div>
+            <div class="stat">
+              <span id="stat-failed">0</span><small>Failed</small>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>
+      window.__PASSWORD_REQUIRED__ = {{ 'true' if password_required else 'false' }};
+    </script>
+  </body>
+</html>

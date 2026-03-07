@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    container_name: gd-compressor
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data # persists credentials, token, and config across restarts
+    env_file:
+      - .env
