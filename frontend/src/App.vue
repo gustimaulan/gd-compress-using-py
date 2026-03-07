@@ -48,9 +48,15 @@ function captureToken() {
   const token = params.get('token');
   if (token) {
     sessionStorage.setItem('auth_token', token);
+    localStorage.setItem('auth_token', token);
     // Clean the URL so the token isn't visible / bookmarkable
     const clean = window.location.pathname;
     window.history.replaceState({}, '', clean);
+  } else {
+    const localToken = localStorage.getItem('auth_token');
+    if (localToken && !sessionStorage.getItem('auth_token')) {
+      sessionStorage.setItem('auth_token', localToken);
+    }
   }
 }
 

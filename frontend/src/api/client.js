@@ -36,6 +36,7 @@ export async function login(password) {
 export async function logout() {
   const result = await request('/api/auth/logout', { method: 'POST' });
   sessionStorage.removeItem('auth_token');
+  localStorage.removeItem('auth_token');
   return result;
 }
 

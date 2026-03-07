@@ -25,7 +25,12 @@ router.beforeEach(async (to, from, next) => {
     sessionStorage.setItem('auth_token', urlToken);
   }
 
-  const token = sessionStorage.getItem('auth_token');
+  let token = sessionStorage.getItem('auth_token');
+  if (!token) {
+    token = localStorage.getItem('auth_token');
+    if (token) sessionStorage.setItem('auth_token', token);
+  }
+
   if (!token) return next('/login');
 
   try {
