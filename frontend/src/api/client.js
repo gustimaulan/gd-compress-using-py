@@ -1,9 +1,20 @@
 const BASE = '';
 
+function getAuthToken() {
+  return sessionStorage.getItem('auth_token') || '';
+}
+
+function authHeaders() {
+  const token = getAuthToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
+}
+
 async function request(path, opts = {}) {
   const url = `${BASE}${path}`;
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...opts.headers },
+    headers: { ...authHeaders(), ...opts.headers },
     ...opts,
   });
   const data = await res.json();
@@ -23,13 +34,18 @@ export async function login(password) {
 }
 
 export async function logout() {
-  return request('/api/logout', { method: 'POST' });
+  const result = await request('/api/auth/logout', { method: 'POST' });
+  sessionStorage.removeItem('auth_token');
+  return result;
 }
 
 export async function uploadFile(endpoint, file) {
   const fd = new FormData();
   fd.append('file', file);
-  const res = await fetch(`${BASE}${endpoint}`, { method: 'POST', body: fd });
+  const token = getAuthToken();
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${BASE}${endpoint}`, { method: 'POST', body: fd, headers });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Upload failed');
   return data;
@@ -67,9 +83,13 @@ export async function getDuplicates(folderId) {
 }
 
 export function cleanupDuplicates(fileIds, onProgress, onDone, onError) {
+  const token = getAuthToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   fetch(`${BASE}/api/drive/duplicates/cleanup`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ file_ids: fileIds }),
   })
     .then(async (res) => {
@@ -88,7 +108,7 @@ export function cleanupDuplicates(fileIds, onProgress, onDone, onError) {
         
         buffer += decoder.decode(value, { stream: true });
         const parts = buffer.split('\n\n');
-        buffer = parts.pop(); // Keep incomplete part
+        buffer = parts.pop();
         
         for (const part of parts) {
           if (part.startsWith('data: ')) {
@@ -113,11 +133,14 @@ export function cleanupDuplicates(fileIds, onProgress, onDone, onError) {
 }
 
 export async function startOAuth() {
-  return request('/api/oauth/start');
+  return request('/api/auth/login');
 }
 
 export function streamJob(jobId, onMessage, onDone) {
-  const es = new EventSource(`${BASE}/api/jobs/${jobId}/stream`);
+  const token = getAuthToken();
+  // EventSource doesn't support custom headers, so pass token as query param
+  const url = `${BASE}/api/jobs/${jobId}/stream?token=${encodeURIComponent(token)}`;
+  const es = new EventSource(url);
   es.onmessage = (e) => {
     if (e.data === '__done__') {
       es.close();

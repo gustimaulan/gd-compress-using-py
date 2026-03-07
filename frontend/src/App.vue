@@ -31,7 +31,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getStatus } from './api/client';
+import { getStatus, logout as apiLogout } from './api/client';
 
 const route = useRoute();
 const router = useRouter();
@@ -42,13 +42,34 @@ const user = ref(null);
 
 const showNav = computed(() => route.name !== 'Login');
 
+// Capture auth token from URL on initial load (after OAuth callback redirect)
+function captureToken() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token');
+  if (token) {
+    sessionStorage.setItem('auth_token', token);
+    // Clean the URL so the token isn't visible / bookmarkable
+    const clean = window.location.pathname;
+    window.history.replaceState({}, '', clean);
+  }
+}
+
 async function loadStatus() {
   try {
-    const meRes = await fetch('/api/auth/me');
+    const token = sessionStorage.getItem('auth_token');
+    if (!token) return;
+
+    const meRes = await fetch('/api/auth/me', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
     const meData = await meRes.json();
     if (meData.authenticated) {
       user.value = { email: meData.email, name: meData.name, picture: meData.picture };
       driveConnected.value = meData.drive_connected;
+    } else {
+      // Token is invalid or expired
+      user.value = null;
+      driveConnected.value = false;
     }
 
     const data = await getStatus();
@@ -59,10 +80,14 @@ async function loadStatus() {
 }
 
 async function doLogout() {
-  await fetch('/api/auth/logout', { method: 'POST' });
+  await apiLogout();
   user.value = null;
+  driveConnected.value = false;
   router.push('/login');
 }
+
+// On mount: capture token first, then load status
+captureToken();
 
 watch(() => route.path, () => {
   if (route.name !== 'Login') loadStatus();

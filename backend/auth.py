@@ -5,7 +5,14 @@ from google_auth_oauthlib.flow import Flow
 from google.oauth2 import id_token as id_token_module
 from google.auth.transport import requests as google_requests
 
-from .utils import SCOPES, _user_token_path
+from .utils import (
+    SCOPES,
+    _user_token_path,
+    create_session_token,
+    get_session_data,
+    delete_session_token,
+    _get_current_token,
+)
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -46,9 +53,10 @@ def auth_login():
     try:
         flow = _build_flow()
         auth_url, state = flow.authorization_url(
-            access_type="offline", 
+            access_type="offline",
             prompt="select_account consent"
         )
+        # We still need Flask session briefly to store OAuth state across the redirect
         session["oauth_state"] = state
         session["oauth_code_verifier"] = getattr(flow, "code_verifier", None)
         return jsonify({"url": auth_url})
@@ -80,33 +88,41 @@ def oauth_callback():
         name = idinfo.get("name", "")
         picture = idinfo.get("picture", "")
 
+        # Store Google Drive token for this user
         token_file = _user_token_path(email)
         token_file.write_text(creds.to_json())
 
-        session["user_email"] = email
-        session["user_name"] = name
-        session["user_picture"] = picture
+        # Create a session token (replaces Flask cookie session)
+        auth_token = create_session_token(email, name, picture)
+
+        # Clear the temporary Flask session used for OAuth state
+        session.clear()
 
     except Exception as e:
         current_app.logger.error(traceback.format_exc())
         return f"OAuth failed: {e}", 400
-    return redirect("/?auth=success")
+
+    # Redirect with token in URL — frontend will capture it in sessionStorage
+    return redirect(f"/?token={auth_token}")
 
 @auth_bp.route("/api/auth/me")
 def auth_me():
-    email = session.get("user_email")
-    if email:
-        has_drive = _user_token_path(email).exists()
+    token = _get_current_token()
+    data = get_session_data(token)
+    if data:
+        has_drive = _user_token_path(data["email"]).exists()
         return jsonify({
             "authenticated": True,
             "drive_connected": has_drive,
-            "email": email,
-            "name": session.get("user_name", ""),
-            "picture": session.get("user_picture", ""),
+            "email": data["email"],
+            "name": data.get("name", ""),
+            "picture": data.get("picture", ""),
         })
     return jsonify({"authenticated": False})
 
 @auth_bp.route("/api/auth/logout", methods=["POST"])
 def logout():
-    session.clear()
+    token = _get_current_token()
+    if token:
+        delete_session_token(token)
     return jsonify({"ok": True})

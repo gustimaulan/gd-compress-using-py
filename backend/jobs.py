@@ -4,7 +4,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from flask import Blueprint, jsonify, Response
+from flask import Blueprint, jsonify, request, Response
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from PIL import Image
 
@@ -12,13 +12,14 @@ from .utils import (
     IMAGE_MIME_TYPES,
     load_config,
     get_drive_service,
+    get_current_user_email,
     auth_required,
 )
 
 jobs_bp = Blueprint("jobs", __name__)
 
 # ─── In-memory job store ────────────────────────────────────────────────────────
-jobs: dict[str, dict] = {}  # job_id -> { status, log_queue, stats, created_at }
+jobs: dict[str, dict] = {}
 
 @jobs_bp.route("/api/jobs", methods=["POST"])
 @auth_required
@@ -32,8 +33,7 @@ def start_job():
     if not service:
         return jsonify({"error": "Not authenticated with Google Drive"}), 401
 
-    from flask import session
-    user_email = session.get("user_email", "")
+    user_email = request.user_email
 
     job_id = str(uuid.uuid4())[:8]
     log_q = queue.Queue()
@@ -57,9 +57,8 @@ def start_job():
 @jobs_bp.route("/api/jobs/<job_id>")
 @auth_required
 def job_status(job_id):
-    from flask import session
     job = jobs.get(job_id)
-    if not job or job.get("user_email") != session.get("user_email"):
+    if not job or job.get("user_email") != request.user_email:
         return jsonify({"error": "Job not found"}), 404
     return jsonify({
         "id": job["id"],
@@ -70,8 +69,7 @@ def job_status(job_id):
 @jobs_bp.route("/api/jobs")
 @auth_required
 def list_jobs():
-    from flask import session
-    user_email = session.get("user_email", "")
+    user_email = request.user_email
     result = []
     user_jobs = [j for j in jobs.values() if j.get("user_email") == user_email]
     sorted_jobs = sorted(user_jobs, key=lambda j: j["created_at"], reverse=True)[:20]
@@ -88,9 +86,8 @@ def list_jobs():
 @auth_required
 def job_stream(job_id):
     """Server-Sent Events stream for real-time log output."""
-    from flask import session
     job = jobs.get(job_id)
-    if not job or job.get("user_email") != session.get("user_email"):
+    if not job or job.get("user_email") != request.user_email:
         return jsonify({"error": "Job not found"}), 404
 
     def event_stream():
@@ -98,7 +95,7 @@ def job_stream(job_id):
         while True:
             try:
                 msg = log_q.get(timeout=30)
-                if msg is None:  # sentinel: job done
+                if msg is None:
                     yield f"data: __done__\n\n"
                     break
                 yield f"data: {msg}\n\n"

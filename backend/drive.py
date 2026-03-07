@@ -1,14 +1,15 @@
 import json
 from collections import defaultdict
-from flask import Blueprint, jsonify, request, session, Response
+import os
+from flask import Blueprint, jsonify, request, Response
 from .utils import (
     load_config,
     save_config,
     _user_token_path,
     get_drive_service,
+    get_current_user_email,
     auth_required,
 )
-import os
 
 drive_bp = Blueprint("drive", __name__)
 
@@ -17,7 +18,7 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
 @drive_bp.route("/api/status")
 def api_status():
-    email = session.get("user_email")
+    email = get_current_user_email()
     authed = email is not None
     drive_connected = False
     if authed:
@@ -33,6 +34,7 @@ def api_status():
     })
 
 @drive_bp.route("/api/config", methods=["GET"])
+@auth_required
 def get_config():
     return jsonify(load_config())
 
