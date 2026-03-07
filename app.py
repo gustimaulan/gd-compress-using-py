@@ -219,6 +219,8 @@ def oauth_start():
         return jsonify({"error": str(e)}), 400
     auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
     session["oauth_state"] = state
+    # Persist the PKCE code_verifier so the callback can use it
+    session["oauth_code_verifier"] = getattr(flow, "code_verifier", None)
     return jsonify({"url": auth_url})
 
 
@@ -226,7 +228,11 @@ def oauth_start():
 def oauth_callback():
     try:
         flow = _build_flow(state=session.get("oauth_state"))
-        flow.fetch_token(authorization_response=request.url)
+        code_verifier = session.pop("oauth_code_verifier", None)
+        flow.fetch_token(
+            authorization_response=request.url,
+            code_verifier=code_verifier,
+        )
         TOKEN_FILE.write_text(flow.credentials.to_json())
     except Exception as e:
         return f"OAuth failed: {e}", 400
