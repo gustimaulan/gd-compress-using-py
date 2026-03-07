@@ -134,10 +134,13 @@ def auth_required(f):
 
 def _build_redirect_uri():
     """Build the OAuth callback redirect URI, using APP_DOMAIN env if set."""
-    app_domain = os.environ.get("APP_DOMAIN", "")
+    app_domain = os.environ.get("APP_DOMAIN", "").strip()
     if app_domain:
-        # Strip trailing slash and protocol if present, always use http(s)://domain/...
+        # Strip trailing slash
         domain = app_domain.rstrip("/")
+        # Ensure it has a scheme (default to https if missing)
+        if not domain.startswith("http://") and not domain.startswith("https://"):
+            domain = f"https://{domain}"
         return f"{domain}/api/oauth/callback"
     # Fallback: generate from request context
     return url_for("oauth_callback", _external=True)
