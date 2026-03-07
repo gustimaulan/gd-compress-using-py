@@ -53,7 +53,7 @@ Ensure `APP_DOMAIN` is set correctly:
 APP_DOMAIN=http://localhost:5001
 
 # For production
-APP_DOMAIN=https://gdc.gmdhia.my.id
+APP_DOMAIN=https://example.com
 ```
 
 ### 4. Run the Backend (Flask)
