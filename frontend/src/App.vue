@@ -15,11 +15,16 @@
   </template>
 
   <main :class="{ 'main-content': showNav }">
-    <router-view
-      :authenticated="driveConnected"
-      :config="config"
-      @refresh-status="loadStatus"
-    />
+    <router-view v-slot="{ Component }">
+      <keep-alive>
+        <component
+          :is="Component"
+          :authenticated="driveConnected"
+          :config="config"
+          @refresh-status="loadStatus"
+        />
+      </keep-alive>
+    </router-view>
   </main>
 </template>
 
