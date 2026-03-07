@@ -141,7 +141,22 @@ async function loadFolders() {
 }
 
 async function loadJobHistory() {
-  try { jobHistory.value = await getJobs(); } catch (e) { /* ok */ }
+  try {
+    const jobs = await getJobs();
+    jobHistory.value = jobs;
+    const runningJob = jobs.find(j => j.status === 'running');
+    if (runningJob && !jobRunning.value) {
+      jobRunning.value = true;
+      streamJob(
+        runningJob.id,
+        (msg) => {
+          logs.value.push(msg);
+          nextTick(() => { if (logPanel.value) logPanel.value.scrollTop = logPanel.value.scrollHeight; });
+        },
+        () => { jobRunning.value = false; loadJobHistory(); },
+      );
+    }
+  } catch (e) { /* ok */ }
 }
 
 async function doSaveConfig() {
