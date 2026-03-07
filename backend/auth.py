@@ -45,7 +45,10 @@ def _build_flow(state=None) -> Flow:
 def auth_login():
     try:
         flow = _build_flow()
-        auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
+        auth_url, state = flow.authorization_url(
+            access_type="offline", 
+            prompt="select_account consent"
+        )
         session["oauth_state"] = state
         session["oauth_code_verifier"] = getattr(flow, "code_verifier", None)
         return jsonify({"url": auth_url})

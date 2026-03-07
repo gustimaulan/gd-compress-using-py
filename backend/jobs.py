@@ -32,10 +32,14 @@ def start_job():
     if not service:
         return jsonify({"error": "Not authenticated with Google Drive"}), 401
 
+    from flask import session
+    user_email = session.get("user_email", "")
+
     job_id = str(uuid.uuid4())[:8]
     log_q = queue.Queue()
     jobs[job_id] = {
         "id": job_id,
+        "user_email": user_email,
         "status": "running",
         "log_queue": log_q,
         "stats": {"success": 0, "failed": 0, "total": 0},
@@ -51,9 +55,11 @@ def start_job():
     return jsonify({"job_id": job_id})
 
 @jobs_bp.route("/api/jobs/<job_id>")
+@auth_required
 def job_status(job_id):
+    from flask import session
     job = jobs.get(job_id)
-    if not job:
+    if not job or job.get("user_email") != session.get("user_email"):
         return jsonify({"error": "Job not found"}), 404
     return jsonify({
         "id": job["id"],
@@ -62,10 +68,13 @@ def job_status(job_id):
     })
 
 @jobs_bp.route("/api/jobs")
+@auth_required
 def list_jobs():
+    from flask import session
+    user_email = session.get("user_email", "")
     result = []
-    # Return last 20 jobs
-    sorted_jobs = sorted(jobs.values(), key=lambda j: j["created_at"], reverse=True)[:20]
+    user_jobs = [j for j in jobs.values() if j.get("user_email") == user_email]
+    sorted_jobs = sorted(user_jobs, key=lambda j: j["created_at"], reverse=True)[:20]
     for job in sorted_jobs:
         result.append({
             "id": job["id"],
@@ -76,10 +85,12 @@ def list_jobs():
     return jsonify(result)
 
 @jobs_bp.route("/api/jobs/<job_id>/stream")
+@auth_required
 def job_stream(job_id):
     """Server-Sent Events stream for real-time log output."""
+    from flask import session
     job = jobs.get(job_id)
-    if not job:
+    if not job or job.get("user_email") != session.get("user_email"):
         return jsonify({"error": "Job not found"}), 404
 
     def event_stream():

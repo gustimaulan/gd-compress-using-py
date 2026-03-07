@@ -32,10 +32,21 @@ IMAGE_MIME_TYPES = [
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 
+CONFIGS_DIR = DATA_DIR / "configs"
+CONFIGS_DIR.mkdir(exist_ok=True)
+
+def _user_config_path() -> Path:
+    email = session.get("user_email")
+    if not email:
+        return DATA_DIR / "config.json" # Unauthenticated fallback
+    safe = hashlib.sha256(email.encode()).hexdigest()[:16]
+    return CONFIGS_DIR / f"{safe}.json"
+
 def load_config() -> dict:
-    if CONFIG_FILE.exists():
+    config_file = _user_config_path()
+    if config_file.exists():
         try:
-            return json.loads(CONFIG_FILE.read_text())
+            return json.loads(config_file.read_text())
         except Exception:
             pass
     return {
@@ -49,7 +60,8 @@ def load_config() -> dict:
     }
 
 def save_config(data: dict):
-    CONFIG_FILE.write_text(json.dumps(data, indent=2))
+    config_file = _user_config_path()
+    config_file.write_text(json.dumps(data, indent=2))
 
 def _user_token_path(email: str) -> Path:
     """Get the token file path for a specific user."""
