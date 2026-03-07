@@ -47,6 +47,10 @@ SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")  # empty = no auth
 
+# Google OAuth credentials — can be provided either via env vars OR credentials.json
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+
 IMAGE_MIME_TYPES = [
     "image/jpeg",
     "image/png",
@@ -130,10 +134,13 @@ def index():
 def api_status():
     authed = TOKEN_FILE.exists()
     creds_uploaded = CREDENTIALS_FILE.exists()
+    env_creds = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
     config = load_config()
     return jsonify({
         "authenticated": authed,
         "creds_uploaded": creds_uploaded,
+        "env_creds": env_creds,          # True = CLIENT_ID/SECRET set via env
+        "oauth_ready": creds_uploaded or env_creds,  # can start OAuth?
         "config": config,
     })
 
@@ -171,16 +178,42 @@ def upload_token():
 
 # ─── API: OAuth flow ───────────────────────────────────────────────────────────
 
+def _build_flow(state=None) -> Flow:
+    """
+    Build an OAuth Flow from either:
+    1. GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET env vars (preferred)
+    2. credentials.json file (fallback)
+    """
+    redirect_uri = url_for("oauth_callback", _external=True)
+    if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+        client_config = {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [redirect_uri],
+            }
+        }
+        return Flow.from_client_config(
+            client_config, scopes=SCOPES, state=state,
+            redirect_uri=redirect_uri,
+        )
+    elif CREDENTIALS_FILE.exists():
+        return Flow.from_client_secrets_file(
+            str(CREDENTIALS_FILE), scopes=SCOPES, state=state,
+            redirect_uri=redirect_uri,
+        )
+    raise RuntimeError("No OAuth credentials configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET env vars, or upload credentials.json.")
+
+
 @app.route("/api/oauth/start")
 @auth_required
 def oauth_start():
-    if not CREDENTIALS_FILE.exists():
-        return jsonify({"error": "Upload credentials.json first"}), 400
-    flow = Flow.from_client_secrets_file(
-        str(CREDENTIALS_FILE),
-        scopes=SCOPES,
-        redirect_uri=url_for("oauth_callback", _external=True),
-    )
+    try:
+        flow = _build_flow()
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 400
     auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
     session["oauth_state"] = state
     return jsonify({"url": auth_url})
@@ -188,15 +221,12 @@ def oauth_start():
 
 @app.route("/api/oauth/callback")
 def oauth_callback():
-    state = session.get("oauth_state")
-    flow = Flow.from_client_secrets_file(
-        str(CREDENTIALS_FILE),
-        scopes=SCOPES,
-        state=state,
-        redirect_uri=url_for("oauth_callback", _external=True),
-    )
-    flow.fetch_token(authorization_response=request.url)
-    TOKEN_FILE.write_text(flow.credentials.to_json())
+    try:
+        flow = _build_flow(state=session.get("oauth_state"))
+        flow.fetch_token(authorization_response=request.url)
+        TOKEN_FILE.write_text(flow.credentials.to_json())
+    except Exception as e:
+        return f"OAuth failed: {e}", 400
     return redirect("/?auth=success")
 
 
