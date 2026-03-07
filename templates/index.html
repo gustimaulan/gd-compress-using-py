@@ -104,26 +104,23 @@
           <div class="config-grid">
             <div class="field">
               <label for="folder-id"
-                >Source Folder ID <span class="required">*</span></label
+                >Source Folder <span class="required">*</span></label
               >
-              <input
-                type="text"
-                id="folder-id"
-                placeholder="e.g. 1aBcDeFgHiJkL..."
-              />
-              <small
-                >From the Drive URL: /drive/folders/<strong
-                  >THIS_PART</strong
-                ></small
-              >
+              <div class="select-wrap">
+                <select id="folder-id">
+                  <option value="">— select a folder —</option>
+                </select>
+                <button id="refresh-folders-btn" class="btn btn-ghost btn-sm" title="Refresh folder list">↻</button>
+              </div>
+              <small>Populates automatically after Google Drive is connected</small>
             </div>
             <div class="field">
-              <label for="output-folder-id">Output Folder ID</label>
-              <input
-                type="text"
-                id="output-folder-id"
-                placeholder="Leave blank = same as source"
-              />
+              <label for="output-folder-id">Output Folder</label>
+              <div class="select-wrap">
+                <select id="output-folder-id">
+                  <option value="">— same as source —</option>
+                </select>
+              </div>
             </div>
             <div class="field">
               <label for="quality"

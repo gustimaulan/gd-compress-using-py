@@ -220,6 +220,35 @@ def set_config():
     return jsonify({"ok": True, "config": config})
 
 
+@app.route("/api/drive/folders")
+@auth_required
+def list_drive_folders():
+    """Returns all Drive folders accessible to the user for dropdown population."""
+    service = get_drive_service()
+    if not service:
+        return jsonify({"error": "Not authenticated with Google Drive"}), 401
+
+    try:
+        folders = []
+        page_token = None
+        while True:
+            resp = service.files().list(
+                q="mimeType='application/vnd.google-apps.folder' and trashed=false",
+                spaces="drive",
+                fields="nextPageToken, files(id, name)",
+                orderBy="name",
+                pageSize=200,
+                pageToken=page_token,
+            ).execute()
+            folders.extend(resp.get("files", []))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+        return jsonify(folders)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ─── API: Jobs ─────────────────────────────────────────────────────────────────
 
 @app.route("/api/jobs", methods=["POST"])

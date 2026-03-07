@@ -61,6 +61,14 @@ function bindAll() {
     window.open(url, "_blank");
   });
 
+  // Refresh folders button
+  document.getElementById("refresh-folders-btn").addEventListener("click", () => {
+    loadFolders(
+      document.getElementById("folder-id").value,
+      document.getElementById("output-folder-id").value
+    );
+  });
+
   // Config range label
   const qualityInput = document.getElementById("quality");
   const qualityVal = document.getElementById("quality-val");
@@ -101,18 +109,61 @@ async function loadStatus() {
     if (data.creds_uploaded) markDone("creds-zone", "creds-label", "creds-icon", "credentials.json ✓");
     if (data.authenticated)   markDone("token-zone",  "token-label",  "token-icon",  "token.json ✓");
 
-    // Populate config
+    // Populate config fields (non-folder ones)
     const cfg = data.config;
-    setVal("folder-id",       cfg.folder_id || "");
-    setVal("output-folder-id",cfg.output_folder_id || "");
-    setVal("quality",         cfg.quality ?? 80);
-    setVal("min-size-kb",     cfg.min_size_kb || "");
-    setVal("max-width",       cfg.max_width || "");
-    setVal("max-height",      cfg.max_height || "");
+    setVal("quality",     cfg.quality ?? 80);
+    setVal("min-size-kb", cfg.min_size_kb || "");
+    setVal("max-width",   cfg.max_width || "");
+    setVal("max-height",  cfg.max_height || "");
     document.getElementById("delete-original").checked = !!cfg.delete_original;
     document.getElementById("quality-val").textContent = cfg.quality ?? 80;
+
+    // Load folders into dropdowns if authenticated
+    if (data.authenticated) {
+      await loadFolders(cfg.folder_id || "", cfg.output_folder_id || "");
+    }
   } catch (e) {
     console.error("Status load failed", e);
+  }
+}
+
+async function loadFolders(savedFolderId = "", savedOutputId = "") {
+  const sourceEl = document.getElementById("folder-id");
+  const outputEl = document.getElementById("output-folder-id");
+  const refreshBtn = document.getElementById("refresh-folders-btn");
+
+  sourceEl.disabled = true;
+  outputEl.disabled = true;
+  if (refreshBtn) refreshBtn.disabled = true;
+
+  try {
+    const res = await fetch("/api/drive/folders");
+    if (!res.ok) throw new Error("Failed to load folders");
+    const folders = await res.json();
+
+    // Populate source dropdown
+    sourceEl.innerHTML = `<option value="">— select a folder —</option>`;
+    folders.forEach(f => {
+      const opt = new Option(f.name, f.id);
+      if (f.id === savedFolderId) opt.selected = true;
+      sourceEl.appendChild(opt);
+    });
+
+    // Populate output dropdown
+    outputEl.innerHTML = `<option value="">— same as source —</option>`;
+    folders.forEach(f => {
+      const opt = new Option(f.name, f.id);
+      if (f.id === savedOutputId) opt.selected = true;
+      outputEl.appendChild(opt);
+    });
+  } catch (e) {
+    console.error("Folder load failed", e);
+    sourceEl.innerHTML = `<option value="">⚠ Could not load folders</option>`;
+    outputEl.innerHTML = `<option value="">⚠ Could not load folders</option>`;
+  } finally {
+    sourceEl.disabled = false;
+    outputEl.disabled = false;
+    if (refreshBtn) refreshBtn.disabled = false;
   }
 }
 
