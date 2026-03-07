@@ -11,6 +11,7 @@ import queue
 import threading
 import time
 import uuid
+from collections import defaultdict
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -126,9 +127,22 @@ def logout():
 
 # ─── Pages ─────────────────────────────────────────────────────────────────────
 
+FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
+
+
 @app.route("/")
 def index():
+    index_file = FRONTEND_DIST / "index.html"
+    if index_file.exists():
+        return index_file.read_text(), 200, {"Content-Type": "text/html"}
+    # Fallback to legacy template
     return render_template("index.html", password_required=bool(APP_PASSWORD))
+
+
+@app.route("/assets/<path:filename>")
+def vue_assets(filename):
+    from flask import send_from_directory
+    return send_from_directory(FRONTEND_DIST / "assets", filename)
 
 
 # ─── API: Status ───────────────────────────────────────────────────────────────
@@ -286,6 +300,86 @@ def list_drive_folders():
         return jsonify(folders)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ─── API: Duplicate Detection ──────────────────────────────────────────────────
+
+@app.route("/api/drive/duplicates")
+@auth_required
+def list_duplicates():
+    """Find duplicate files in a folder by MD5 checksum."""
+    folder_id = request.args.get("folder_id", "").strip()
+    if not folder_id:
+        return jsonify({"error": "folder_id is required"}), 400
+
+    service = get_drive_service()
+    if not service:
+        return jsonify({"error": "Not authenticated with Google Drive"}), 401
+
+    try:
+        files = []
+        page_token = None
+        while True:
+            resp = service.files().list(
+                q=f"'{folder_id}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'",
+                spaces="drive",
+                fields="nextPageToken, files(id, name, size, md5Checksum, mimeType, modifiedTime)",
+                pageSize=500,
+                pageToken=page_token,
+            ).execute()
+            files.extend(resp.get("files", []))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+
+        # Group by md5Checksum
+        hash_map = defaultdict(list)
+        for f in files:
+            key = f.get("md5Checksum") or f.get("name", "")
+            hash_map[key].append(f)
+
+        # Only keep groups with duplicates
+        groups = []
+        for key, group in hash_map.items():
+            if len(group) > 1:
+                groups.append({
+                    "hash": key,
+                    "count": len(group),
+                    "files": group,
+                })
+
+        return jsonify({
+            "total_files": len(files),
+            "duplicate_groups": len(groups),
+            "groups": groups,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/drive/duplicates/cleanup", methods=["POST"])
+@auth_required
+def cleanup_duplicates():
+    """Delete selected duplicate files by IDs."""
+    data = request.json or {}
+    file_ids = data.get("file_ids", [])
+    if not file_ids:
+        return jsonify({"error": "No file_ids provided"}), 400
+
+    service = get_drive_service()
+    if not service:
+        return jsonify({"error": "Not authenticated with Google Drive"}), 401
+
+    deleted = 0
+    errors = []
+    for fid in file_ids:
+        try:
+            service.files().delete(fileId=fid).execute()
+            deleted += 1
+        except Exception as e:
+            errors.append({"id": fid, "error": str(e)})
+
+    return jsonify({"deleted": deleted, "errors": errors})
 
 
 # ─── API: Jobs ─────────────────────────────────────────────────────────────────
