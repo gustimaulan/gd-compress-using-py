@@ -195,19 +195,26 @@ async function deleteSelected() {
   deleting.value = true;
   deleteProgress.value = 0;
   const toDelete = [...selectedIds.value];
-  try {
-    const res = await cleanupDuplicates(toDelete);
-    deleteProgress.value = res.deleted + (res.errors?.length || 0);
-    if (res.errors?.length) showToast(`Deleted ${res.deleted}, ${res.errors.length} error(s).`, 'warn');
-    else showToast(`Deleted ${res.deleted} file(s) successfully! 🗑️`);
-    selectedIds.value = [];
-    await scan();
-  } catch (e) {
-    showToast(e.message, 'error');
-  } finally {
-    deleting.value = false;
-    deleteProgress.value = 0;
-  }
+  
+  cleanupDuplicates(
+    toDelete,
+    (progressData) => {
+      // onProgress callback
+      deleteProgress.value = progressData.deleted + progressData.errors.length;
+    },
+    async () => {
+      // onDone callback
+      deleting.value = false;
+      showToast(`Finished deleting! 🗑️`);
+      selectedIds.value = [];
+      await scan();
+    },
+    (err) => {
+      // onError callback
+      deleting.value = false;
+      showToast(err.message, 'error');
+    }
+  );
 }
 
 function formatSize(bytes) {

@@ -66,11 +66,50 @@ export async function getDuplicates(folderId) {
   return request(`/api/drive/duplicates?folder_id=${encodeURIComponent(folderId)}`);
 }
 
-export async function cleanupDuplicates(fileIds) {
-  return request('/api/drive/duplicates/cleanup', {
+export function cleanupDuplicates(fileIds, onProgress, onDone, onError) {
+  fetch(`${BASE}/api/drive/duplicates/cleanup`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ file_ids: fileIds }),
-  });
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+      
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop(); // Keep incomplete part
+        
+        for (const part of parts) {
+          if (part.startsWith('data: ')) {
+            const dataStr = part.substring(6);
+            if (dataStr === '__done__') {
+              if (onDone) onDone();
+              return;
+            }
+            try {
+              const parsed = JSON.parse(dataStr);
+              if (onProgress) onProgress(parsed);
+            } catch (e) {
+              console.error('Failed to parse SSE JSON', e);
+            }
+          }
+        }
+      }
+    })
+    .catch((err) => {
+      if (onError) onError(err);
+    });
 }
 
 export async function startOAuth() {

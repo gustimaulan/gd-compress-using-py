@@ -35,6 +35,12 @@ from PIL import Image
 
 load_dotenv()
 
+# Allow OAuth over plain http for local dev (APP_DOMAIN starts with http://)
+# In production this env var must NOT be set.
+_app_domain = os.environ.get("APP_DOMAIN", "")
+if _app_domain.startswith("http://"):
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
 # Trust reverse proxy headers (Traefik) so url_for() generates https:// URLs
@@ -413,7 +419,7 @@ def list_duplicates():
 @app.route("/api/drive/duplicates/cleanup", methods=["POST"])
 @auth_required
 def cleanup_duplicates():
-    """Delete selected duplicate files by IDs."""
+    """Delete selected duplicate files by IDs, streaming progress (SSE)."""
     data = request.json or {}
     file_ids = data.get("file_ids", [])
     if not file_ids:
@@ -423,16 +429,24 @@ def cleanup_duplicates():
     if not service:
         return jsonify({"error": "Not authenticated with Google Drive"}), 401
 
-    deleted = 0
-    errors = []
-    for fid in file_ids:
-        try:
-            service.files().delete(fileId=fid).execute()
-            deleted += 1
-        except Exception as e:
-            errors.append({"id": fid, "error": str(e)})
+    def generate():
+        deleted = 0
+        errors = []
+        for fid in file_ids:
+            try:
+                service.files().delete(fileId=fid).execute()
+                deleted += 1
+            except Exception as e:
+                errors.append({"id": fid, "error": str(e)})
+            
+            # Yield progress after every file
+            chunk = json.dumps({"deleted": deleted, "errors": errors, "total": len(file_ids)})
+            yield f"data: {chunk}\n\n"
+        
+        # End of stream marker
+        yield "data: __done__\n\n"
 
-    return jsonify({"deleted": deleted, "errors": errors})
+    return Response(generate(), mimetype="text/event-stream")
 
 
 # ─── API: Jobs ─────────────────────────────────────────────────────────────────
