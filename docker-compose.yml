@@ -3,9 +3,21 @@ services:
     build: .
     container_name: gd-compressor
     restart: unless-stopped
-    ports:
-      - "5000:5000"
     volumes:
-      - ./data:/app/data # persists credentials, token, and config across restarts
+      - ./data:/app/data
     env_file:
       - .env
+    networks:
+      - traefik_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gd-compressor.rule=Host(`${APP_DOMAIN}`)"
+      - "traefik.http.routers.gd-compressor.entrypoints=websecure"
+      - "traefik.http.routers.gd-compressor.tls=true"
+      - "traefik.http.routers.gd-compressor.tls.certresolver=letsencrypt"
+      - "traefik.http.services.gd-compressor.loadbalancer.server.port=5000"
+      - "traefik.docker.network=traefik_network"
+
+networks:
+  traefik_network:
+    external: true # must match the network Traefik is already running on
