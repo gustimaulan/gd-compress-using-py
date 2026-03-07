@@ -187,6 +187,7 @@ body {
   outline: none;
   transition: border-color 0.15s;
   font-family: inherit;
+  width: 100%;
 }
 .field select:focus,
 .field input:focus {
@@ -219,9 +220,14 @@ body {
   display: flex;
   gap: 0.4rem;
   align-items: center;
+  width: 100%;
 }
 .select-wrap select {
   flex: 1;
+  min-width: 0;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .field-checkbox {
