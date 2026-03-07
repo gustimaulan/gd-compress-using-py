@@ -126,11 +126,22 @@ def auth_required(f):
 
 # ─── Auth (Google Sign-In + Drive OAuth in one flow) ───────────────────────
 
+def _build_redirect_uri():
+    """Build the OAuth callback redirect URI, using APP_DOMAIN env if set."""
+    app_domain = os.environ.get("APP_DOMAIN", "")
+    if app_domain:
+        # Strip trailing slash and protocol if present, always use http(s)://domain/...
+        domain = app_domain.rstrip("/")
+        return f"{domain}/api/oauth/callback"
+    # Fallback: generate from request context
+    return url_for("oauth_callback", _external=True)
+
+
 def _build_flow(state=None) -> Flow:
     """Build an OAuth Flow with combined sign-in + Drive scopes."""
-    redirect_uri = url_for("oauth_callback", _external=True)
     if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET):
         raise RuntimeError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set.")
+    redirect_uri = _build_redirect_uri()
     client_config = {
         "web": {
             "client_id": GOOGLE_CLIENT_ID,
@@ -151,12 +162,14 @@ def auth_login():
     """Start the combined Google Sign-In + Drive authorization flow."""
     try:
         flow = _build_flow()
-    except RuntimeError as e:
+        auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
+        session["oauth_state"] = state
+        session["oauth_code_verifier"] = getattr(flow, "code_verifier", None)
+        return jsonify({"url": auth_url})
+    except Exception as e:
+        import traceback
+        app.logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 400
-    auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
-    session["oauth_state"] = state
-    session["oauth_code_verifier"] = getattr(flow, "code_verifier", None)
-    return jsonify({"url": auth_url})
 
 
 @app.route("/api/oauth/callback")
@@ -165,8 +178,15 @@ def oauth_callback():
     try:
         flow = _build_flow(state=session.get("oauth_state"))
         code_verifier = session.pop("oauth_code_verifier", None)
+
+        # Reconstruct the authorization_response using our registered redirect URI
+        # to avoid 127.0.0.1 vs localhost mismatches.
+        redirect_uri = _build_redirect_uri()
+        query = request.query_string.decode()
+        authorization_response = f"{redirect_uri}?{query}"
+
         flow.fetch_token(
-            authorization_response=request.url,
+            authorization_response=authorization_response,
             code_verifier=code_verifier,
         )
         creds = flow.credentials
@@ -193,6 +213,8 @@ def oauth_callback():
         session["user_picture"] = picture
 
     except Exception as e:
+        import traceback
+        app.logger.error(traceback.format_exc())
         return f"OAuth failed: {e}", 400
     return redirect("/?auth=success")
 
@@ -623,5 +645,5 @@ def run_compression_job(job_id: str, service, config: dict, log_q: queue.Queue):
 # ─── Run ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 5001))
     app.run(host="0.0.0.0", port=port, debug=False)
