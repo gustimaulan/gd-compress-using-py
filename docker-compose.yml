@@ -15,7 +15,7 @@ services:
       - "traefik.http.routers.gd-compressor.entrypoints=websecure"
       - "traefik.http.routers.gd-compressor.tls=true"
       - "traefik.http.routers.gd-compressor.tls.certresolver=letsencrypt"
-      - "traefik.http.services.gd-compressor.loadbalancer.server.port=5000"
+      - "traefik.http.services.gd-compressor.loadbalancer.server.port=5001"
       - "traefik.docker.network=dokploy-network"
 
 networks:
