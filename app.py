@@ -103,23 +103,69 @@ def auth_required(f):
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
-        if APP_PASSWORD and not session.get("authenticated"):
+        if not session.get("user_email"):
             return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
     return decorated
 
 
-# ─── Auth ──────────────────────────────────────────────────────────────────────
+# ─── Auth (Google ID Token) ────────────────────────────────────────────────────
 
-@app.route("/login", methods=["POST"])
-def login():
-    if request.json.get("password") == APP_PASSWORD:
-        session["authenticated"] = True
-        return jsonify({"ok": True})
-    return jsonify({"error": "Wrong password"}), 403
+ALLOWED_EMAILS = [
+    e.strip() for e in os.environ.get("ALLOWED_EMAILS", "").split(",") if e.strip()
+]
 
 
-@app.route("/logout", methods=["POST"])
+@app.route("/api/auth/google", methods=["POST"])
+def google_login():
+    """Verify a Google ID token and create a session."""
+    from google.oauth2 import id_token as id_token_module
+    from google.auth.transport import requests as google_requests
+
+    token = (request.json or {}).get("credential", "")
+    if not token:
+        return jsonify({"error": "No credential provided"}), 400
+
+    try:
+        idinfo = id_token_module.verify_oauth2_token(
+            token,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID or None,
+        )
+        email = idinfo.get("email", "")
+        name = idinfo.get("name", "")
+
+        # If ALLOWED_EMAILS is set, restrict access
+        if ALLOWED_EMAILS and email not in ALLOWED_EMAILS:
+            return jsonify({"error": f"Access denied for {email}"}), 403
+
+        session["user_email"] = email
+        session["user_name"] = name
+        session["user_picture"] = idinfo.get("picture", "")
+        return jsonify({
+            "ok": True,
+            "email": email,
+            "name": name,
+            "picture": idinfo.get("picture", ""),
+        })
+    except Exception as e:
+        return jsonify({"error": f"Invalid token: {e}"}), 401
+
+
+@app.route("/api/auth/me")
+def auth_me():
+    """Check if the user is logged in."""
+    if session.get("user_email"):
+        return jsonify({
+            "authenticated": True,
+            "email": session["user_email"],
+            "name": session.get("user_name", ""),
+            "picture": session.get("user_picture", ""),
+        })
+    return jsonify({"authenticated": False})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
 def logout():
     session.clear()
     return jsonify({"ok": True})
@@ -145,6 +191,16 @@ def vue_assets(filename):
     return send_from_directory(FRONTEND_DIST / "assets", filename)
 
 
+# Catch-all for Vue Router history mode
+@app.route("/login")
+@app.route("/duplicates")
+def vue_catch_all():
+    index_file = FRONTEND_DIST / "index.html"
+    if index_file.exists():
+        return index_file.read_text(), 200, {"Content-Type": "text/html"}
+    return render_template("index.html", password_required=False)
+
+
 # ─── API: Status ───────────────────────────────────────────────────────────────
 
 @app.route("/api/status")
@@ -156,8 +212,9 @@ def api_status():
     return jsonify({
         "authenticated": authed,
         "creds_uploaded": creds_uploaded,
-        "env_creds": env_creds,          # True = CLIENT_ID/SECRET set via env
-        "oauth_ready": creds_uploaded or env_creds,  # can start OAuth?
+        "env_creds": env_creds,
+        "oauth_ready": creds_uploaded or env_creds,
+        "google_client_id": GOOGLE_CLIENT_ID,
         "config": config,
     })
 

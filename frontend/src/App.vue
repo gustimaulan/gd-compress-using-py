@@ -1,17 +1,22 @@
 <template>
-  <nav class="nav">
-    <router-link to="/" class="nav-brand">📦 GD Compressor</router-link>
-    <div class="nav-links">
-      <router-link to="/" class="nav-link">Dashboard</router-link>
-      <router-link to="/duplicates" class="nav-link">Duplicates</router-link>
-    </div>
-    <span v-if="authenticated" class="badge badge-green">● Connected</span>
-    <span v-else class="badge badge-red">● Offline</span>
-  </nav>
+  <template v-if="showNav">
+    <nav class="nav">
+      <router-link to="/" class="nav-brand">📦 GD Compressor</router-link>
+      <div class="nav-links">
+        <router-link to="/" class="nav-link">Dashboard</router-link>
+        <router-link to="/duplicates" class="nav-link">Duplicates</router-link>
+      </div>
+      <div class="nav-user" v-if="user">
+        <img v-if="user.picture" :src="user.picture" class="avatar" referrerpolicy="no-referrer" />
+        <span class="user-name">{{ user.name }}</span>
+        <button class="btn btn-ghost btn-sm" @click="doLogout">Logout</button>
+      </div>
+    </nav>
+  </template>
 
-  <main class="main-content">
+  <main :class="{ 'main-content': showNav }">
     <router-view
-      :authenticated="authenticated"
+      :authenticated="driveAuthenticated"
       :oauth-ready="oauthReady"
       :creds-uploaded="credsUploaded"
       :config="config"
@@ -21,18 +26,37 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { getStatus } from './api/client';
 
-const authenticated = ref(false);
+const route = useRoute();
+const router = useRouter();
+
+const driveAuthenticated = ref(false);
 const oauthReady = ref(false);
 const credsUploaded = ref(false);
 const config = ref({});
+const user = ref(null);
+
+const showNav = computed(() => route.name !== 'Login');
 
 async function loadStatus() {
   try {
+    // Check app session
+    const meRes = await fetch('/api/auth/me');
+    const meData = await meRes.json();
+    if (meData.authenticated) {
+      user.value = {
+        email: meData.email,
+        name: meData.name,
+        picture: meData.picture,
+      };
+    }
+
+    // Check Drive status
     const data = await getStatus();
-    authenticated.value = data.authenticated;
+    driveAuthenticated.value = data.authenticated;
     oauthReady.value = data.oauth_ready;
     credsUploaded.value = data.creds_uploaded;
     config.value = data.config;
@@ -41,5 +65,35 @@ async function loadStatus() {
   }
 }
 
-onMounted(loadStatus);
+async function doLogout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  user.value = null;
+  router.push('/login');
+}
+
+// Reload status when navigating to dashboard
+watch(() => route.path, () => {
+  if (route.name !== 'Login') loadStatus();
+}, { immediate: true });
 </script>
+
+<style scoped>
+.nav-user {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: 0.5rem;
+}
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+}
+.user-name {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+@media (max-width: 640px) {
+  .user-name { display: none; }
+}
+</style>
