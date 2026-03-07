@@ -18,5 +18,5 @@ COPY . .
 # Copy built frontend into the image
 COPY --from=frontend /build/dist /app/frontend/dist
 
-EXPOSE 5000
-CMD ["python", "app.py"]
+EXPOSE 5001
+CMD ["python", "run.py"]
