@@ -8,7 +8,7 @@ services:
     env_file:
       - .env
     networks:
-      - dokploy_network
+      - dokploy-network
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.gd-compressor.rule=Host(`${APP_DOMAIN}`)"
@@ -16,8 +16,8 @@ services:
       - "traefik.http.routers.gd-compressor.tls=true"
       - "traefik.http.routers.gd-compressor.tls.certresolver=letsencrypt"
       - "traefik.http.services.gd-compressor.loadbalancer.server.port=5000"
-      - "traefik.docker.network=dokploy_network"
+      - "traefik.docker.network=dokploy-network"
 
 networks:
-  dokploy_network:
-    external: true # must match the network Traefik is already running on
+  dokploy-network:
+    external: true
