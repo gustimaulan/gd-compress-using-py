@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 def create_app():
     load_dotenv()
     
+    from .db import init_db
+    init_db()
+    
     app = Flask(__name__, static_folder=None, template_folder="../templates")
     app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
     

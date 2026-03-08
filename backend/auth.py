@@ -7,7 +7,6 @@ from google.auth.transport import requests as google_requests
 
 from .utils import (
     SCOPES,
-    _user_token_path,
     create_session_token,
     get_session_data,
     delete_session_token,
@@ -89,8 +88,8 @@ def oauth_callback():
         picture = idinfo.get("picture", "")
 
         # Store Google Drive token for this user
-        token_file = _user_token_path(email)
-        token_file.write_text(creds.to_json())
+        from .db import save_token
+        save_token(email, creds.to_json())
 
         # Create a session token (replaces Flask cookie session)
         auth_token = create_session_token(email, name, picture)
@@ -103,6 +102,9 @@ def oauth_callback():
         return f"OAuth failed: {e}", 400
 
     # Redirect with token in URL — frontend will capture it in sessionStorage
+    frontend_url = os.environ.get("FRONTEND_URL", "").strip().rstrip("/")
+    if frontend_url:
+        return redirect(f"{frontend_url}/?token={auth_token}")
     return redirect(f"/?token={auth_token}")
 
 @auth_bp.route("/api/auth/me")
@@ -110,7 +112,8 @@ def auth_me():
     token = _get_current_token()
     data = get_session_data(token)
     if data:
-        has_drive = _user_token_path(data["email"]).exists()
+        from .db import get_token
+        has_drive = get_token(data["email"]) is not None
         return jsonify({
             "authenticated": True,
             "drive_connected": has_drive,

@@ -1,10 +1,11 @@
 <template>
   <template v-if="showNav">
-    <nav class="nav">
-      <router-link to="/" class="nav-brand">📦 GD Compressor</router-link>
+    <!-- Desktop Navigation -->
+    <nav class="nav" v-if="!isMobile">
+      <router-link to="/" class="nav-brand">📦 GD Compressor <span class="version-tag">v1.0.2</span></router-link>
       <div class="nav-links">
-        <router-link to="/" class="nav-link">Dashboard</router-link>
-        <router-link to="/duplicates" class="nav-link">Duplicates</router-link>
+        <router-link to="/" class="nav-link">Compress</router-link>
+        <router-link to="/duplicates" class="nav-link">Find Duplicates</router-link>
       </div>
       <div class="nav-user" v-if="user">
         <img v-if="user.picture" :src="user.picture" class="avatar" referrerpolicy="no-referrer" />
@@ -12,6 +13,9 @@
         <button class="btn btn-ghost btn-sm" @click="doLogout">Logout</button>
       </div>
     </nav>
+
+    <!-- Mobile Header & Sidebar (Extracted Component) -->
+    <MobileNav v-else :user="user" @logout="doLogout" />
   </template>
 
   <main :class="{ 'main-content': showNav }">
@@ -26,12 +30,30 @@
       </keep-alive>
     </router-view>
   </main>
+
+  <!-- Global Toasts -->
+  <div class="toast-container">
+    <div 
+      v-for="toast in toasts" 
+      :key="toast.id" 
+      class="toast" 
+      :class="'toast-' + toast.type"
+    >
+      {{ toast.message }}
+      <button class="toast-close" @click="removeToast(toast.id)">&times;</button>
+    </div>
+  </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getStatus, logout as apiLogout } from './api/client';
+import { useToast } from './composables/useToast';
+import { useMobile } from './composables/useMobile';
+import MobileNav from './components/MobileNav.vue';
+
+const { toasts, removeToast } = useToast();
 
 const route = useRoute();
 const router = useRouter();
@@ -40,6 +62,7 @@ const driveConnected = ref(false);
 const config = ref({});
 const user = ref(null);
 
+const { isMobile } = useMobile();
 const showNav = computed(() => route.name !== 'Login');
 
 // Capture auth token from URL on initial load (after OAuth callback redirect)
@@ -105,4 +128,54 @@ watch(() => route.path, () => {
 .avatar { width: 28px; height: 28px; border-radius: 999px; }
 .user-name { font-size: 0.82rem; color: var(--text-muted); }
 @media (max-width: 640px) { .user-name { display: none; } }
+
+/* Toasts */
+.toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 9999;
+}
+.toast {
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.8rem 1.2rem;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  animation: slideIn 0.3s ease-out forwards;
+}
+.toast-success {
+  border-left: 4px solid var(--green);
+}
+.toast-error {
+  border-left: 4px solid var(--red);
+}
+.toast-info {
+  border-left: 4px solid var(--accent);
+}
+.toast-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.toast-close:hover { color: var(--text); }
+
+.version-tag { font-size: 0.65rem; background: var(--bg); color: var(--text-muted); padding: 0.1rem 0.4rem; border-radius: 999px; margin-left: 0.25rem; font-weight: normal; border: 1px solid var(--border); }
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
 </style>

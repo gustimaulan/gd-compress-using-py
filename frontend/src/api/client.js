@@ -67,6 +67,12 @@ export async function getFolders() {
   return request('/api/drive/folders');
 }
 
+export async function getDriveStorage() {
+  return request('/api/drive/storage');
+}
+
+
+
 export async function startJob() {
   return request('/api/jobs', { method: 'POST' });
 }

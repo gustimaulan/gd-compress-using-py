@@ -5,3 +5,5 @@ Pillow>=10.0.0
 tqdm>=4.66.0
 Flask>=3.0.0
 python-dotenv>=1.0.0
+croniter>=2.0.0
+croniter

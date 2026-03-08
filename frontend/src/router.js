@@ -1,11 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import Dashboard from './views/Dashboard.vue';
+import Compress from './views/Compress.vue';
 import DuplicateRemover from './views/DuplicateRemover.vue';
 import Login from './views/Login.vue';
 
 const routes = [
   { path: '/login', name: 'Login', component: Login, meta: { public: true } },
-  { path: '/', name: 'Dashboard', component: Dashboard },
+  { path: '/', name: 'Compress', component: Compress },
   { path: '/duplicates', name: 'Duplicates', component: DuplicateRemover },
 ];
 

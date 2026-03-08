@@ -2,10 +2,11 @@ import json
 from collections import defaultdict
 import os
 from flask import Blueprint, jsonify, request, Response
+import croniter
+from datetime import datetime
 from .utils import (
     load_config,
     save_config,
-    _user_token_path,
     get_drive_service,
     get_current_user_email,
     auth_required,
@@ -22,7 +23,8 @@ def api_status():
     authed = email is not None
     drive_connected = False
     if authed:
-        drive_connected = _user_token_path(email).exists()
+        from .db import get_token
+        drive_connected = get_token(email) is not None
     env_creds = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
     config = load_config()
     return jsonify({
@@ -44,9 +46,27 @@ def set_config():
     data = request.json or {}
     config = load_config()
     for key in ["folder_id", "quality", "min_size_kb", "max_width", "max_height",
-                "delete_original", "output_folder_id"]:
+                "delete_original", "output_folder_id", "cron_schedule"]:
         if key in data:
             config[key] = data[key]
+            
+    if "cron_schedule" in data:
+        if data["cron_schedule"]:
+            try:
+                import pytz
+                tz = pytz.timezone('Asia/Jakarta')
+                # Calculate strictly in JKT local time
+                now_jkt = datetime.now(tz).replace(tzinfo=None)
+                itr = croniter.croniter(data["cron_schedule"], now_jkt)
+                next_naive = itr.get_next(datetime)
+                # Convert back to timezone-aware timestamp
+                next_aware = tz.localize(next_naive)
+                config["next_run"] = next_aware.timestamp()
+            except Exception as e:
+                return jsonify({"error": f"Invalid cron expression: {e}"}), 400
+        else:
+            config["next_run"] = 0.0
+
     save_config(config)
     return jsonify({"ok": True, "config": config})
 
@@ -154,3 +174,26 @@ def cleanup_duplicates():
         yield "data: __done__\n\n"
 
     return Response(generate(), mimetype="text/event-stream")
+
+@drive_bp.route("/api/drive/storage")
+@auth_required
+def drive_storage():
+    service = get_drive_service()
+    if not service:
+        return jsonify({"error": "Not authenticated with Google Drive"}), 401
+
+    try:
+        about = service.about().get(fields="storageQuota").execute()
+        quota = about.get("storageQuota", {})
+        
+        # quota structure usually has: limit, usage, usageInDrive, usageInDriveTrash
+        return jsonify({
+            "limit": int(quota.get("limit", 0)),
+            "usage": int(quota.get("usage", 0)),
+            "usageInDrive": int(quota.get("usageInDrive", 0)),
+            "usageInDriveTrash": int(quota.get("usageInDriveTrash", 0))
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
