@@ -88,7 +88,7 @@ def list_drive_folders():
                 orderBy="name",
                 pageSize=200,
                 pageToken=page_token,
-            ).execute()
+            ).execute(num_retries=3)
             folders.extend(resp.get("files", []))
             page_token = resp.get("nextPageToken")
             if not page_token:
@@ -118,7 +118,7 @@ def list_duplicates():
                 fields="nextPageToken, files(id, name, size, md5Checksum, mimeType, modifiedTime)",
                 pageSize=500,
                 pageToken=page_token,
-            ).execute()
+            ).execute(num_retries=3)
             files.extend(resp.get("files", []))
             page_token = resp.get("nextPageToken")
             if not page_token:
@@ -163,7 +163,7 @@ def cleanup_duplicates():
         errors = []
         for fid in file_ids:
             try:
-                service.files().delete(fileId=fid).execute()
+                service.files().delete(fileId=fid).execute(num_retries=3)
                 deleted += 1
             except Exception as e:
                 errors.append({"id": fid, "error": str(e)})
@@ -183,7 +183,7 @@ def drive_storage():
         return jsonify({"error": "Not authenticated with Google Drive"}), 401
 
     try:
-        about = service.about().get(fields="storageQuota").execute()
+        about = service.about().get(fields="storageQuota").execute(num_retries=3)
         quota = about.get("storageQuota", {})
         
         # quota structure usually has: limit, usage, usageInDrive, usageInDriveTrash

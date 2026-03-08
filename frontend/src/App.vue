@@ -2,7 +2,7 @@
   <template v-if="showNav">
     <!-- Desktop Navigation -->
     <nav class="nav" v-if="!isMobile">
-      <router-link to="/" class="nav-brand">📦 GD Compressor <span class="version-tag">v1.0.2</span></router-link>
+      <router-link to="/" class="nav-brand">📦 GD Compressor <span class="version-tag">v1.0.3</span></router-link>
       <div class="nav-links">
         <router-link to="/" class="nav-link">Compress</router-link>
         <router-link to="/duplicates" class="nav-link">Find Duplicates</router-link>

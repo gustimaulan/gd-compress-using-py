@@ -149,7 +149,7 @@ def run_compression_job(job_id: str, service, config: dict, log_q: queue.Queue):
                 q=query, spaces="drive",
                 fields="nextPageToken, files(id, name, mimeType, size)",
                 pageToken=page_token,
-            ).execute()
+            ).execute(num_retries=5)
             for f in resp.get("files", []):
                 size_kb = int(f.get("size", 0)) / 1024
                 if size_kb >= min_size_kb:
@@ -177,6 +177,11 @@ def run_compression_job(job_id: str, service, config: dict, log_q: queue.Queue):
             stem = Path(name).stem
             webp_name = f"{stem}.webp"
 
+            # Throttling to prevent rate limits: sleep 3 seconds every 5 files
+            if i > 1 and (i - 1) % 5 == 0:
+                log(f"⏸️  Throttling: Sleeping 3s to respect Drive API limits...")
+                time.sleep(3)
+
             log(f"[{i}/{total}] 📥 {name} ({orig_size / 1024:.1f} KB)")
             try:
                 req = service.files().get_media(fileId=fid)
@@ -198,11 +203,11 @@ def run_compression_job(job_id: str, service, config: dict, log_q: queue.Queue):
                 service.files().create(
                     body={"name": webp_name, "parents": [output_folder]},
                     media_body=media, fields="id"
-                ).execute()
+                ).execute(num_retries=5)
                 log(f"[{i}/{total}] ✅ {webp_name} ({webp_size / 1024:.1f} KB, saved {savings:.1f}%)")
 
                 if delete_original:
-                    service.files().delete(fileId=fid).execute()
+                    service.files().delete(fileId=fid).execute(num_retries=5)
                     log(f"[{i}/{total}] 🗑️  Deleted original.")
 
                 success += 1

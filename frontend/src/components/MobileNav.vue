@@ -13,7 +13,7 @@
     <div class="sidebar-header">
       <div style="display:flex; flex-direction:column">
         <span class="nav-brand">📦 Menu</span>
-        <span class="version-tag-mobile">v1.0.2</span>
+        <span class="version-tag-mobile">v1.0.3</span>
       </div>
       <button class="btn btn-ghost menu-btn" @click="sidebarOpen = false">✕</button>
     </div>
